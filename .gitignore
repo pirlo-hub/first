@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+data.db
+.venv/
+venv/
+
+# 简历是敏感数据，不要提交到仓库
+samples/*
+!samples/README.md
