@@ -55,6 +55,7 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL) -> dict:
         tools=[_build_openai_tool()],
         tool_choice={"type": "function", "function": {"name": EXTRACT_TOOL["name"]}},
         messages=[{"role": "user", "content": content_blocks}],
+        extra_body={"thinking": {"type": "disabled"}},  # 关闭思考模式，tool_choice 才能正常工作
     )
 
     for choice in resp.choices:
