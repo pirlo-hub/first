@@ -13,7 +13,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .parse import extract_text
+from .parse import build_content_blocks
 from .schema import DEFAULT_MODEL, EXTRACT_TOOL
 
 load_dotenv()
@@ -45,17 +45,16 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL) -> dict:
 
     client = OpenAI(api_key=api_key, base_url=_DEEPSEEK_BASE_URL)
 
-    resume_text = extract_text(file_path)
-    system_prompt = _load_prompt()
+    # content blocks：图片简历是 image_url 列表，文字简历是单个 text block
+    content_blocks = build_content_blocks(file_path)
+    # 把提示词作为最后一个 text block 追加，引导模型调用工具
+    content_blocks = content_blocks + [{"type": "text", "text": _load_prompt()}]
 
     resp = client.chat.completions.create(
         model=model,
         tools=[_build_openai_tool()],
         tool_choice={"type": "function", "function": {"name": EXTRACT_TOOL["name"]}},
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": resume_text},
-        ],
+        messages=[{"role": "user", "content": content_blocks}],
     )
 
     for choice in resp.choices:

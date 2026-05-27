@@ -1,9 +1,14 @@
-"""把简历文件转成纯文字字符串，用于发给 DeepSeek（纯文字模型）。
+"""把简历文件转成可发给 DeepSeek V4-Pro 的 content block 列表。
 
-支持：PDF（有文字层）/ Word / txt / md
-不支持：图片简历、扫描件（DeepSeek V3 无多模态，需单独加 OCR 才能处理）
+支持：
+  - PDF（有文字层）→ pdfplumber 抽文字（快、省 token）
+  - PDF（扫描件/图片层）→ pymupdf 转图片后以 image_url 发送
+  - 图片（jpg/png/webp 等）→ base64 image_url
+  - Word / txt / md → 纯文字
 """
 
+import base64
+import mimetypes
 from pathlib import Path
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -11,48 +16,83 @@ TEXT_EXTS = {".txt", ".md"}
 
 
 def build_content_blocks(file_path: str) -> list:
-    """返回单元素列表，内容是纯文字 block，与旧接口保持兼容。"""
-    return [{"type": "text", "text": extract_text(file_path)}]
-
-
-def extract_text(file_path: str) -> str:
+    """返回 OpenAI vision 格式的 content block 列表。"""
     path = Path(file_path)
     ext = path.suffix.lower()
 
     if ext == ".pdf":
-        return _pdf_text(path)
+        return _pdf_blocks(path)
 
     if ext in IMAGE_EXTS:
-        raise ValueError(
-            f"DeepSeek V3 不支持图片简历（{path.name}）。\n"
-            "如需处理图片/扫描件，请先用 OCR 工具（如 pytesseract）转成文字再导入。"
-        )
+        return [_image_block(path)]
 
     if ext == ".docx":
-        return _docx_text(path)
+        return [{"type": "text", "text": _docx_text(path)}]
 
     if ext in TEXT_EXTS:
-        return path.read_text(encoding="utf-8", errors="ignore")
+        return [{"type": "text", "text": path.read_text(encoding="utf-8", errors="ignore")}]
 
-    raise ValueError(f"不支持的文件类型: {ext}（支持 pdf/docx/txt/md）")
+    raise ValueError(f"不支持的文件类型: {ext}（支持 pdf/docx/txt/md 及常见图片）")
 
 
-def _pdf_text(path: Path) -> str:
+def extract_text(file_path: str) -> str:
+    """兼容旧调用：返回纯文字（仅 PDF/docx/txt 有意义）。"""
+    blocks = build_content_blocks(file_path)
+    texts = [b["text"] for b in blocks if b.get("type") == "text"]
+    return "\n".join(texts)
+
+
+# ── 内部工具 ─────────────────────────────────────────────
+
+
+def _image_block(path: Path) -> dict:
+    media = mimetypes.guess_type(str(path))[0] or "image/jpeg"
+    data = base64.standard_b64encode(path.read_bytes()).decode()
+    return {
+        "type": "image_url",
+        "image_url": {"url": f"data:{media};base64,{data}"},
+    }
+
+
+def _pdf_blocks(path: Path) -> list:
+    """先尝试 pdfplumber 抽文字；如果是扫描件（无文字层），改用 pymupdf 转图片。"""
     import pdfplumber
 
-    pages = []
+    pages_text = []
     with pdfplumber.open(str(path)) as pdf:
         for page in pdf.pages:
             t = page.extract_text()
-            if t:
-                pages.append(t)
-    text = "\n".join(pages).strip()
-    if not text:
-        raise ValueError(
-            f"{path.name} 是扫描件或图片 PDF，没有文字层，无法直接读取。\n"
-            "请先用 OCR 工具转成文字版 PDF 或 txt，再重试。"
+            if t and t.strip():
+                pages_text.append(t.strip())
+
+    if pages_text:
+        return [{"type": "text", "text": "\n\n".join(pages_text)}]
+
+    # 扫描件：逐页转图片
+    return _pdf_as_images(path)
+
+
+def _pdf_as_images(path: Path) -> list:
+    """用 pymupdf 把 PDF 每页渲染成 PNG，打包成 image_url block 列表。"""
+    try:
+        import fitz  # pymupdf
+    except ImportError:
+        raise RuntimeError(
+            "处理图片 PDF 需要 pymupdf，请运行：pip install pymupdf"
         )
-    return text
+
+    blocks = []
+    doc = fitz.open(str(path))
+    for page in doc:
+        pix = page.get_pixmap(dpi=150)
+        png_bytes = pix.tobytes("png")
+        data = base64.standard_b64encode(png_bytes).decode()
+        blocks.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{data}"},
+        })
+    doc.close()
+    return blocks
 
 
 def _docx_text(path: Path) -> str:
