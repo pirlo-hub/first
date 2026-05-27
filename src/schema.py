@@ -1,7 +1,6 @@
 """抽取用的固定结构。用 tool use 强制模型返回这个形状的 JSON。"""
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
-FALLBACK_MODEL = "claude-opus-4-7"  # 难解析的简历再升级用
+DEFAULT_MODEL = "deepseek-chat"   # DeepSeek-V3
 
 COMPANY_TYPES = ["原厂", "方案商", "贸易商", "未知"]
 
