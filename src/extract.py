@@ -38,7 +38,21 @@ def _build_openai_tool() -> dict:
     }
 
 
-def extract_resume(file_path: str, model: str = DEFAULT_MODEL) -> dict:
+def _parse_tool_args(raw: str) -> dict:
+    """容忍尾部多余内容地解析 function call 的 arguments。
+
+    模型偶尔会在合法 JSON 后多吐字符（重复输出/附加说明），导致 json.loads
+    报 "Extra data" 错。用 raw_decode 只取第一个合法对象，丢弃后面的。
+    """
+    raw = raw.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        obj, _ = json.JSONDecoder().raw_decode(raw)
+        return obj
+
+
+def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int = 1) -> dict:
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
         raise RuntimeError("缺少 DEEPSEEK_API_KEY，请复制 .env.example 为 .env 并填入 key")
@@ -47,25 +61,33 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL) -> dict:
 
     # content blocks：图片简历是 image_url 列表，文字简历是单个 text block
     content_blocks = build_content_blocks(file_path)
-    # 把提示词作为最后一个 text block 追加，引导模型调用工具
     content_blocks = content_blocks + [{"type": "text", "text": _load_prompt()}]
+    messages = [{"role": "user", "content": content_blocks}]
 
-    resp = client.chat.completions.create(
-        model=model,
-        tools=[_build_openai_tool()],
-        tool_choice={"type": "function", "function": {"name": EXTRACT_TOOL["name"]}},
-        messages=[{"role": "user", "content": content_blocks}],
-        extra_body={"thinking": {"type": "disabled"}},  # 关闭思考模式，tool_choice 才能正常工作
-    )
+    last_err: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            resp = client.chat.completions.create(
+                model=model,
+                tools=[_build_openai_tool()],
+                tool_choice={"type": "function", "function": {"name": EXTRACT_TOOL["name"]}},
+                messages=messages,
+                extra_body={"thinking": {"type": "disabled"}},
+            )
+            for choice in resp.choices:
+                msg = choice.message
+                if msg.tool_calls:
+                    for call in msg.tool_calls:
+                        if call.function.name == EXTRACT_TOOL["name"]:
+                            return _parse_tool_args(call.function.arguments)
+            raise RuntimeError("模型未通过工具返回结构化结果")
+        except (json.JSONDecodeError, RuntimeError) as e:
+            last_err = e
+            if attempt >= max_retries:
+                break
+            # 否则进入下一轮重试
 
-    for choice in resp.choices:
-        msg = choice.message
-        if msg.tool_calls:
-            for call in msg.tool_calls:
-                if call.function.name == EXTRACT_TOOL["name"]:
-                    return json.loads(call.function.arguments)
-
-    raise RuntimeError("模型未通过工具返回结构化结果")
+    raise RuntimeError(f"抽取失败（已重试 {max_retries} 次）: {last_err}")
 
 
 def _main() -> None:
