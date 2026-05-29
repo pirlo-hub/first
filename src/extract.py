@@ -72,7 +72,7 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int 
             resp = client.chat.completions.create(
                 model=model,
                 tools=[_build_openai_tool()],
-                tool_choice={"type": "function", "function": {"name": EXTRACT_TOOL["name"]}},
+                tool_choice="required",  # 强制调用工具；兼容不支持 tool_choice.function 的旧版代理
                 messages=messages,
             )
             for choice in resp.choices:
