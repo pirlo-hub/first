@@ -56,7 +56,8 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int 
     if not api_key:
         raise RuntimeError("缺少 OPENAI_API_KEY，请复制 .env.example 为 .env 并填入 key")
 
-    # 支持自定义 base URL（用于 OpenAI 兼容的第三方代理）；不设则走官方
+    # 支持通过环境变量覆盖模型名，方便切换代理时适配不同模型别名
+    model = os.environ.get("OPENAI_MODEL") or model
     base_url = os.environ.get("OPENAI_BASE_URL") or None
     client = OpenAI(api_key=api_key, base_url=base_url)
 
