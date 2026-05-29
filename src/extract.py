@@ -56,7 +56,9 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int 
     if not api_key:
         raise RuntimeError("缺少 OPENAI_API_KEY，请复制 .env.example 为 .env 并填入 key")
 
-    client = OpenAI(api_key=api_key)
+    # 支持自定义 base URL（用于 OpenAI 兼容的第三方代理）；不设则走官方
+    base_url = os.environ.get("OPENAI_BASE_URL") or None
+    client = OpenAI(api_key=api_key, base_url=base_url)
 
     # content blocks：图片简历是 image_url 列表，文字简历是单个 text block
     content_blocks = build_content_blocks(file_path)
