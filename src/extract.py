@@ -1,6 +1,6 @@
-"""核心：把一份简历文件喂给 DeepSeek，拿回结构化 dict。
+"""核心：把一份简历文件喂给 OpenAI，拿回结构化 dict。
 
-用 OpenAI 兼容接口 + function calling 强制返回固定 JSON。
+用 function calling 强制返回固定 JSON，支持图片/PDF 多模态输入。
 
 命令行用法：
     python -m src.extract <简历文件路径> [--save] [--code 编号] [--model 模型名]
@@ -19,7 +19,6 @@ from .schema import DEFAULT_MODEL, EXTRACT_TOOL
 load_dotenv()
 
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "extract_prompt.md"
-_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 
 
 def _load_prompt() -> str:
@@ -53,11 +52,11 @@ def _parse_tool_args(raw: str) -> dict:
 
 
 def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int = 1) -> dict:
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("缺少 DEEPSEEK_API_KEY，请复制 .env.example 为 .env 并填入 key")
+        raise RuntimeError("缺少 OPENAI_API_KEY，请复制 .env.example 为 .env 并填入 key")
 
-    client = OpenAI(api_key=api_key, base_url=_DEEPSEEK_BASE_URL)
+    client = OpenAI(api_key=api_key)
 
     # content blocks：图片简历是 image_url 列表，文字简历是单个 text block
     content_blocks = build_content_blocks(file_path)
@@ -72,7 +71,6 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int 
                 tools=[_build_openai_tool()],
                 tool_choice={"type": "function", "function": {"name": EXTRACT_TOOL["name"]}},
                 messages=messages,
-                extra_body={"thinking": {"type": "disabled"}},
             )
             for choice in resp.choices:
                 msg = choice.message
@@ -93,7 +91,7 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int 
 def _main() -> None:
     import argparse
 
-    ap = argparse.ArgumentParser(description="从简历抽取结构化信息（DeepSeek）")
+    ap = argparse.ArgumentParser(description="从简历抽取结构化信息（OpenAI）")
     ap.add_argument("file", help="简历文件路径（pdf/docx/txt）")
     ap.add_argument("--save", action="store_true", help="同时写入 SQLite")
     ap.add_argument("--code", default=None, help="候选人脱敏编号")

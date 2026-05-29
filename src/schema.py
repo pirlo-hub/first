@@ -1,6 +1,6 @@
 """抽取用的固定结构。用 tool use 强制模型返回这个形状的 JSON。"""
 
-DEFAULT_MODEL = "deepseek-v4-pro"  # 支持多模态（图片 + 文字）
+DEFAULT_MODEL = "gpt-4o"  # 支持多模态（图片 + 文字），视觉识别稳定
 
 COMPANY_TYPES = ["原厂", "方案商", "贸易商", "未知"]
 
