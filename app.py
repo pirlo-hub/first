@@ -80,7 +80,9 @@ def render_candidate_card(data: dict, key_prefix: str, *, db_id: int | None = No
     """渲染单个候选人卡片（个人信息可编辑 + 履历表）。返回（可能被用户改过的）data。"""
     cand = data.setdefault("candidate", {})
 
-    c1, c2, c3 = st.columns([1, 1, 1])
+    c0, c1, c2, c3 = st.columns([1, 1, 1, 1])
+    cand["name"] = c0.text_input("姓名", value=cand.get("name") or "",
+                                 key=f"{key_prefix}_name")
     cand["age"] = c1.text_input("年龄", value=str(cand.get("age") or ""),
                                 key=f"{key_prefix}_age")
     cand["education"] = c2.text_input("学历", value=cand.get("education") or "",
@@ -113,6 +115,7 @@ def ok_results_to_card_list(ok_results: list[dict]) -> list[dict]:
         out.append({
             "_temp_id": f"T{i}",
             "source_file": r["filename"],
+            "name": cand.get("name"),
             "age": cand.get("age"),
             "education": cand.get("education"),
             "total_sales_years": cand.get("total_sales_years"),
@@ -218,13 +221,14 @@ with tab_lib:
         )
 
         for c in candidates:
-            label = f"#{c['id']}　{c.get('source_file') or '—'}　学历 {c.get('education') or '-'}　销售年限 {c.get('total_sales_years') or '-'}"
+            label = f"#{c['id']}　{c.get('name') or '—'}　{c.get('source_file') or '—'}　学历 {c.get('education') or '-'}　销售年限 {c.get('total_sales_years') or '-'}"
             with st.expander(label, expanded=False):
                 # 个人信息（只读展示）
-                a, b, cc = st.columns(3)
-                a.metric("年龄", c.get("age") or "—")
-                b.metric("学历", c.get("education") or "—")
-                cc.metric("销售总年限(年)", c.get("total_sales_years") or "—")
+                a, b, cc, dd = st.columns(4)
+                a.metric("姓名", c.get("name") or "—")
+                b.metric("年龄", c.get("age") or "—")
+                cc.metric("学历", c.get("education") or "—")
+                dd.metric("销售总年限(年)", c.get("total_sales_years") or "—")
                 if c.get("business_summary"):
                     st.markdown(f"**个人业绩简述**：{c['business_summary']}")
 

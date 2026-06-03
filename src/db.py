@@ -12,6 +12,7 @@ DB_PATH = Path(__file__).resolve().parent.parent / "library.db"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS candidates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT,
     age INTEGER,
     education TEXT,
     total_sales_years REAL,
@@ -49,6 +50,9 @@ def connect() -> sqlite3.Connection:
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(candidates)").fetchall()}
+        if "name" not in cols:
+            conn.execute("ALTER TABLE candidates ADD COLUMN name TEXT")
 
 
 def _to_int(v):
@@ -86,9 +90,10 @@ def save_extraction(data: dict, source_file: str) -> int:
         cand = data.get("candidate", {}) or {}
         cur = conn.execute(
             "INSERT INTO candidates "
-            "(age, education, total_sales_years, business_summary, source_file, raw_json) "
-            "VALUES (?,?,?,?,?,?)",
+            "(name, age, education, total_sales_years, business_summary, source_file, raw_json) "
+            "VALUES (?,?,?,?,?,?,?)",
             (
+                cand.get("name"),
                 _to_int(cand.get("age")),
                 cand.get("education"),
                 _to_float(cand.get("total_sales_years")),

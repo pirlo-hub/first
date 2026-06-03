@@ -17,6 +17,7 @@ EXTRACT_TOOL = {
             "candidate": {
                 "type": "object",
                 "properties": {
+                    "name": {"type": ["string", "null"], "description": "应聘人姓名；简历未提供则 null"},
                     "age": {"type": ["integer", "null"], "description": "年龄；简历未提供则 null"},
                     "education": {"type": ["string", "null"], "description": "最高学历，如 本科/硕士/大专"},
                     "total_sales_years": {
@@ -28,7 +29,7 @@ EXTRACT_TOOL = {
                         "description": "个人业绩简述：用 1-3 句话概括他的销售业绩、主要成就、擅长领域。简历未明确提供时填 null",
                     },
                 },
-                "required": ["age", "education", "total_sales_years", "business_summary"],
+                "required": ["name", "age", "education", "total_sales_years", "business_summary"],
             },
             "employments": {
                 "type": "array",
@@ -68,7 +69,7 @@ EXTRACT_TOOL = {
                         },
                         "notes": {
                             "type": ["string", "null"],
-                            "description": "在职情况备注：简历中提到的业绩、离职原因、特殊情况等",
+                            "description": "在职情况备注：简短关键备注（业绩/离职原因/特殊情况），**控制在 50 字以内**；无则 null",
                         },
                     },
                     "required": [
