@@ -42,6 +42,27 @@ def extract_text(file_path: str) -> str:
     return "\n".join(texts)
 
 
+def summarize_blocks(blocks: list) -> dict:
+    """概括一组 content block，供界面核对"模型到底读到了什么"。
+
+    返回 {"text": 拼接的文字, "n_images": 图片数量, "kind": "text"/"image"/"mixed"}。
+    """
+    texts = [b["text"] for b in blocks if b.get("type") == "text"]
+    n_images = sum(1 for b in blocks if b.get("type") == "image_url")
+    text = "\n".join(texts).strip()
+    if text and n_images:
+        kind = "mixed"
+    elif n_images:
+        kind = "image"
+    else:
+        kind = "text"
+    return {"text": text, "n_images": n_images, "kind": kind}
+
+
+# 文字层太短就认定为扫描件（按字符数）；中文简历正常都远超这个量
+_MIN_PDF_TEXT_CHARS = 40
+
+
 # ── 内部工具 ─────────────────────────────────────────────
 
 
@@ -65,10 +86,13 @@ def _pdf_blocks(path: Path) -> list:
             if t and t.strip():
                 pages_text.append(t.strip())
 
-    if pages_text:
-        return [{"type": "text", "text": "\n\n".join(pages_text)}]
+    joined = "\n\n".join(pages_text).strip()
+    # 文字层够多才走文字；太短（残缺/只有页眉页脚）就当扫描件转图片，
+    # 避免模型拿到半截内容后"脑补"剩下的。
+    if len(joined) >= _MIN_PDF_TEXT_CHARS:
+        return [{"type": "text", "text": joined}]
 
-    # 扫描件：逐页转图片
+    # 扫描件 / 文字层残缺：逐页转图片
     return _pdf_as_images(path)
 
 
@@ -84,7 +108,7 @@ def _pdf_as_images(path: Path) -> list:
     blocks = []
     doc = fitz.open(str(path))
     for page in doc:
-        pix = page.get_pixmap(dpi=150)
+        pix = page.get_pixmap(dpi=200)  # 中文小字识别更稳，避免看不清而脑补
         png_bytes = pix.tobytes("png")
         data = base64.standard_b64encode(png_bytes).decode()
         blocks.append({

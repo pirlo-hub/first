@@ -13,7 +13,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from .parse import build_content_blocks
+from .parse import build_content_blocks, summarize_blocks
 from .schema import DEFAULT_MODEL, EXTRACT_TOOL
 
 load_dotenv()
@@ -51,7 +51,13 @@ def _parse_tool_args(raw: str) -> dict:
         return obj
 
 
-def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int = 1) -> dict:
+def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int = 1,
+                   return_debug: bool = False):
+    """抽取一份简历。
+
+    return_debug=True 时返回 (data, debug)，debug 含模型实际读到的输入概况
+    （识别出的文字 / 图片张数），用于人工核对是否发生"脑补"。
+    """
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("缺少 OPENAI_API_KEY，请复制 .env.example 为 .env 并填入 key")
@@ -62,8 +68,9 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int 
     client = OpenAI(api_key=api_key, base_url=base_url)
 
     # content blocks：图片简历是 image_url 列表，文字简历是单个 text block
-    content_blocks = build_content_blocks(file_path)
-    content_blocks = content_blocks + [{"type": "text", "text": _load_prompt()}]
+    resume_blocks = build_content_blocks(file_path)
+    debug = summarize_blocks(resume_blocks)  # 模型实际拿到的简历输入概况
+    content_blocks = resume_blocks + [{"type": "text", "text": _load_prompt()}]
     messages = [{"role": "user", "content": content_blocks}]
 
     last_err: Exception | None = None
@@ -80,7 +87,8 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int 
                 if msg.tool_calls:
                     for call in msg.tool_calls:
                         if call.function.name == EXTRACT_TOOL["name"]:
-                            return _parse_tool_args(call.function.arguments)
+                            data = _parse_tool_args(call.function.arguments)
+                            return (data, debug) if return_debug else data
             raise RuntimeError("模型未通过工具返回结构化结果")
         except (json.JSONDecodeError, RuntimeError) as e:
             last_err = e

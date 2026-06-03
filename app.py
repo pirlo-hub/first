@@ -75,6 +75,33 @@ def render_employment_table(employments: list[dict]) -> None:
     st.markdown(html_str, unsafe_allow_html=True)
 
 
+def render_input_preview(debug: dict | None) -> None:
+    """显示模型实际读到的简历输入，供核对是否"脑补"。"""
+    if not debug:
+        return
+    kind = debug.get("kind")
+    n_img = debug.get("n_images") or 0
+    text = (debug.get("text") or "").strip()
+
+    if kind == "image":
+        st.warning(
+            f"⚠️ 本简历按**图片**方式发送给模型（共 {n_img} 张），靠模型识图。"
+            "请重点核对下方抽取结果是否与原图一致——若代理/模型不支持读图，可能会出现凭空捏造的内容。"
+        )
+        return
+
+    # 文字 / 混合：把识别到的原文亮出来，方便逐字比对
+    chars = len(text)
+    note = f"识别到约 {chars} 字" + (f"，另有 {n_img} 张图片" if n_img else "")
+    if chars < 80:
+        st.error(
+            f"⚠️ 只从该文件里识别到很少的文字（{note}）。"
+            "模型几乎没拿到简历内容，抽取结果很可能是**编的**，请不要采信，换 Word 或更清晰的文件重试。"
+        )
+    with st.expander(f"🔍 模型实际读到的简历原文（{note}）— 核对用", expanded=False):
+        st.text(text or "（空）")
+
+
 def render_candidate_card(data: dict, key_prefix: str, *, db_id: int | None = None,
                           source_file: str | None = None) -> dict:
     """渲染单个候选人卡片（个人信息可编辑 + 履历表）。返回（可能被用户改过的）data。"""
@@ -147,10 +174,12 @@ with tab_new:
                 tmp.write(up.getbuffer())
                 tmp_path = tmp.name
             try:
-                data = extract_resume(tmp_path)
-                results.append({"filename": up.name, "data": data, "error": None})
+                data, debug = extract_resume(tmp_path, return_debug=True)
+                results.append({"filename": up.name, "data": data,
+                                "debug": debug, "error": None})
             except Exception as e:  # noqa: BLE001
-                results.append({"filename": up.name, "data": None, "error": str(e)})
+                results.append({"filename": up.name, "data": None,
+                                "debug": None, "error": str(e)})
         progress.progress(1.0, text="抽取完成")
         st.session_state["results"] = results
 
@@ -189,6 +218,7 @@ with tab_new:
                         st.rerun()
                     continue
 
+                render_input_preview(r.get("debug"))
                 data = render_candidate_card(r["data"], key_prefix=f"new_{idx}",
                                              source_file=filename)
                 r["data"] = data  # 写回 session
