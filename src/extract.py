@@ -80,6 +80,7 @@ def extract_resume(file_path: str, model: str = DEFAULT_MODEL, max_retries: int 
                 model=model,
                 tools=[_build_openai_tool()],
                 tool_choice="required",  # 强制调用工具；兼容不支持 tool_choice.function 的旧版代理
+                temperature=0,  # 关掉创造性，降低凭空捏造（客户名/品牌/型号等）
                 messages=messages,
             )
             for choice in resp.choices:
