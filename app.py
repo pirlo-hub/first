@@ -40,88 +40,22 @@ _TABLE_HEADERS = [
 ]
 
 
-def _norm(s: str) -> str:
-    """归一化用于子串匹配：去掉所有空白（pdfplumber 偶尔会插空格）。"""
-    return "".join(str(s).split())
-
-
-def _in_source(item: str, source_norm: str) -> bool:
-    """item 是否在简历原文（归一化后）中出现。"""
-    if not source_norm or not item:
-        return True  # 没有原文（图片简历）或空值，跳过判定
-    return _norm(item) in source_norm
-
-
-_SUSPECT_STYLE = (
-    "background:#5c2b2b;color:#ffb4b4;padding:1px 6px;"
-    "border-radius:3px;border:1px solid #a04040;"
-)
-
-
-def _wrap_suspect(text: str) -> str:
-    return f'<span style="{_SUSPECT_STYLE}" title="原文中未找到，疑似 AI 虚构">⚠ {html.escape(text)}</span>'
-
-
-def _join_verified(arr, source_norm: str) -> str:
-    """渲染数组字段；每个元素若不在原文则加红色 ⚠ 标记。"""
-    if not arr:
-        return ""
-    parts = []
-    for x in arr:
-        if not x:
-            continue
-        x = str(x)
-        if _in_source(x, source_norm):
-            parts.append(html.escape(x))
-        else:
-            parts.append(_wrap_suspect(x))
-    return "、".join(parts)
-
-
-def _cell_verified(value: str, source_norm: str) -> str:
-    """渲染单值字段（如公司名）；不在原文则加红色 ⚠ 标记。"""
-    if not value:
-        return ""
-    if _in_source(value, source_norm):
-        return html.escape(value)
-    return _wrap_suspect(value)
-
-
-def find_suspects(data: dict, source_text: str) -> list[tuple[str, str]]:
-    """返回 [(字段标签, 值), ...]，列出所有"原文没找到"的可疑项。"""
-    if not source_text:
-        return []
-    src = _norm(source_text)
-    out = []
-    for emp in data.get("employments") or []:
-        for label, val in [("公司", emp.get("company")), ("岗位", emp.get("title"))]:
-            if val and not _in_source(val, src):
-                out.append((label, val))
-        for label, key in [("客户", "customers"), ("品牌", "product_brands"),
-                           ("类别", "product_categories"), ("型号", "product_models")]:
-            for item in (emp.get(key) or []):
-                if item and not _in_source(item, src):
-                    out.append((label, str(item)))
-    return out
-
-
-def render_employment_table(employments: list[dict], source_text: str = "") -> None:
-    """渲染履历表格。若给了原文，可疑项（不在原文中的客户/品牌/型号等）会红色高亮。"""
-    src = _norm(source_text) if source_text else ""
+def render_employment_table(employments: list[dict]) -> None:
+    """渲染履历表格，公司性质列用颜色高亮。"""
     rows_html = []
     for emp in employments:
         ctype = emp.get("company_type") or ""
         style = screen_style(ctype)
         cells = [
-            _cell_verified(emp.get("company") or "", src),
+            html.escape(emp.get("company") or ""),
             f'<span style="{style};padding:2px 8px;border-radius:4px;">{html.escape(ctype)}</span>'
             if style else html.escape(ctype),
-            _cell_verified(emp.get("title") or "", src),
+            html.escape(emp.get("title") or ""),
             html.escape(_period(emp.get("start"), emp.get("end"))),
-            _join_verified(emp.get("customers"), src),
-            _join_verified(emp.get("product_brands"), src),
-            _join_verified(emp.get("product_categories"), src),
-            _join_verified(emp.get("product_models"), src),
+            html.escape(_join(emp.get("customers"))),
+            html.escape(_join(emp.get("product_brands"))),
+            html.escape(_join(emp.get("product_categories"))),
+            html.escape(_join(emp.get("product_models"))),
             html.escape(emp.get("notes") or ""),
         ]
         tr = "".join(f"<td style='padding:6px 10px;border-bottom:1px solid #444;vertical-align:top;'>{c}</td>" for c in cells)
@@ -169,28 +103,8 @@ def render_input_preview(debug: dict | None) -> None:
 
 
 def render_candidate_card(data: dict, key_prefix: str, *, db_id: int | None = None,
-                          source_file: str | None = None,
-                          source_text: str = "") -> dict:
-    """渲染单个候选人卡片（个人信息可编辑 + 履历表）。返回（可能被用户改过的）data。
-
-    若给了 source_text，履历表里"原文中找不到"的项会红字加 ⚠ 标记。
-    """
-    # 提前列出可疑项，醒目地放在卡片顶部
-    suspects = find_suspects(data, source_text) if source_text else []
-    if suspects:
-        items_html = "".join(
-            f"<li><b>[{html.escape(label)}]</b> {html.escape(val)}</li>"
-            for label, val in suspects
-        )
-        st.markdown(
-            f"<div style='background:#5c2b2b;color:#ffd0d0;padding:10px 14px;"
-            f"border-left:4px solid #ff5555;border-radius:4px;margin-bottom:8px;'>"
-            f"⚠️ <b>下列 {len(suspects)} 项在简历原文中未找到，疑似 AI 虚构，请核对后再存入：</b>"
-            f"<ul style='margin:6px 0 0 18px;'>{items_html}</ul>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-
+                          source_file: str | None = None) -> dict:
+    """渲染单个候选人卡片（个人信息可编辑 + 履历表）。返回（可能被用户改过的）data。"""
     cand = data.setdefault("candidate", {})
 
     c0, c1, c2, c3 = st.columns([1, 1, 1, 1])
@@ -212,7 +126,7 @@ def render_candidate_card(data: dict, key_prefix: str, *, db_id: int | None = No
 
     employments = data.get("employments") or []
     if employments:
-        render_employment_table(employments, source_text=source_text)
+        render_employment_table(employments)
     else:
         st.caption("（未抽到工作履历）")
 
@@ -305,10 +219,8 @@ with tab_new:
                     continue
 
                 render_input_preview(r.get("debug"))
-                src_text = (r.get("debug") or {}).get("text") or ""
                 data = render_candidate_card(r["data"], key_prefix=f"new_{idx}",
-                                             source_file=filename,
-                                             source_text=src_text)
+                                             source_file=filename)
                 r["data"] = data  # 写回 session
 
                 btn1, btn2, _ = st.columns([1.5, 1.5, 5])
