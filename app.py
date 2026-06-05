@@ -62,12 +62,15 @@ def render_employment_table(employments: list[dict]) -> None:
         rows_html.append(f"<tr>{tr}</tr>")
 
     thead = "".join(
-        f"<th style='padding:8px 10px;border-bottom:2px solid #888;text-align:left;'>{h}</th>"
+        f"<th style='padding:8px 10px;border-bottom:2px solid #888;"
+        f"text-align:left;white-space:nowrap;'>{h}</th>"
         for h in _TABLE_HEADERS
     )
+    # 容器横向滚动 + 表格自动列宽（窄屏可滚动，宽屏自然铺开）
     html_str = (
-        "<div style='overflow-x:auto;'>"
-        "<table style='width:100%;border-collapse:collapse;font-size:14px;'>"
+        "<div style='overflow-x:auto;width:100%;'>"
+        "<table style='border-collapse:collapse;font-size:14px;"
+        "table-layout:auto;width:100%;'>"
         f"<thead><tr>{thead}</tr></thead>"
         f"<tbody>{''.join(rows_html)}</tbody>"
         "</table></div>"

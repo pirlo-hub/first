@@ -22,7 +22,7 @@ _HEADERS = [
     ("年龄", 7),
     ("学历", 9),
     ("销售年限", 9),
-    ("业绩简述", 48),
+    ("业绩简述", 30),
     ("公司", 30),
     ("公司性质", 10),
     ("岗位", 15),
@@ -44,7 +44,7 @@ _CENTER_COLS = {1, 2, 3, 4, 5, 8, 10}
 _FONT_CN = "微软雅黑"
 
 # Claude 风格调色板：暖中性 + 珊瑚橘 accent
-_HEADER_BG   = "FFFFEB3B"   # 亮黄
+_HEADER_BG   = "FFFFFF00"   # Excel 标准色：黄
 _HEADER_FG   = "FF2C2A23"   # 暖深棕
 _ACCENT      = "FFC96442"   # Claude 珊瑚橘
 _BORDER_LITE = "FFE5E1D8"   # 暖浅灰（数据格网线）

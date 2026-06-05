@@ -76,13 +76,13 @@ def _image_block(path: Path) -> dict:
 
 
 def _pdf_blocks(path: Path) -> list:
-    """先尝试 pdfplumber 抽文字；如果是扫描件（无文字层），改用 pymupdf 转图片。"""
+    """先尝试 pdfplumber 抽文字（自动剔除水印）；如果是扫描件，改用 pymupdf 转图片。"""
     import pdfplumber
 
     pages_text = []
     with pdfplumber.open(str(path)) as pdf:
         for page in pdf.pages:
-            t = page.extract_text()
+            t = _extract_text_no_watermark(page)
             if t and t.strip():
                 pages_text.append(t.strip())
 
@@ -94,6 +94,50 @@ def _pdf_blocks(path: Path) -> list:
 
     # 扫描件 / 文字层残缺：逐页转图片
     return _pdf_as_images(path)
+
+
+def _extract_text_no_watermark(page) -> str:
+    """提取一页的文字，剔除常见水印字符（旋转 / 极淡灰）。
+
+    PDF 水印一般通过两种方式实现：
+      1) 把文字旋转 45°/30° 等角度 → pdfplumber 的 char['upright'] 为 False
+      2) 把字体设成接近白色的浅灰 → char['non_stroking_color'] 是高灰度值
+
+    过滤掉这两类 char 后再排版抽文字。若过滤后剩余太少（<50% 原文），
+    可能是误伤，退回原文。
+    """
+    try:
+        original = page.extract_text() or ""
+
+        def _keep(obj):
+            if obj.get("object_type") != "char":
+                return True
+            # 旋转字符（水印典型特征）
+            if obj.get("upright") is False:
+                return False
+            # 极淡灰：颜色越接近 1（白）越可能是水印背景文字
+            col = obj.get("non_stroking_color")
+            if isinstance(col, (int, float)) and col >= 0.75:
+                return False
+            if isinstance(col, (list, tuple)) and len(col) >= 3:
+                r, g, b = col[0], col[1], col[2]
+                if all(isinstance(x, (int, float)) for x in (r, g, b)) \
+                        and r >= 0.75 and g >= 0.75 and b >= 0.75:
+                    return False
+            return True
+
+        filtered = page.filter(_keep).extract_text() or ""
+
+        # 安全网：若过滤后剩余文字少于原文 50%，可能是误伤，退回原文
+        if original and len(filtered.strip()) < len(original.strip()) * 0.5:
+            return original
+        return filtered
+    except Exception:
+        # 任何异常都退回原始抽取，保证不会让水印过滤把简历搞丢
+        try:
+            return page.extract_text() or ""
+        except Exception:
+            return ""
 
 
 def _pdf_as_images(path: Path) -> list:
