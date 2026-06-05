@@ -44,7 +44,7 @@ _CENTER_COLS = {1, 2, 3, 4, 5, 8, 10}
 _FONT_CN = "微软雅黑"
 
 # Claude 风格调色板：暖中性 + 珊瑚橘 accent
-_HEADER_BG   = "FFF5F1E8"   # 暖米
+_HEADER_BG   = "FFFFEB3B"   # 亮黄
 _HEADER_FG   = "FF2C2A23"   # 暖深棕
 _ACCENT      = "FFC96442"   # Claude 珊瑚橘
 _BORDER_LITE = "FFE5E1D8"   # 暖浅灰（数据格网线）
@@ -128,7 +128,8 @@ def candidates_to_xlsx(candidates: list[dict]) -> bytes:
                 cand_border = _data_border(True)  # 合并区或单行，bottom 都用粗线
                 for col_idx, val in enumerate(cand_values, start=1):
                     cell = ws.cell(row=row, column=col_idx, value=val)
-                    cell.font = cand_font
+                    # 业绩简述（第 6 列）是长文本，不要加粗
+                    cell.font = data_font if col_idx == 6 else cand_font
                     horiz = "center" if col_idx in _CENTER_COLS else "left"
                     cell.alignment = Alignment(horizontal=horiz, vertical="center", wrap_text=True)
                     cell.border = cand_border
