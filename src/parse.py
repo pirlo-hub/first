@@ -1,7 +1,7 @@
-"""把简历文件转成可发给 DeepSeek V4-Pro 的 content block 列表。
+"""把简历文件转成可发给 OpenAI 多模态接口的 content block 列表。
 
 支持：
-  - PDF（有文字层）→ pdfplumber 抽文字（快、省 token）
+  - PDF（有文字层）→ pymupdf 抽文字 + 重复行水印过滤
   - PDF（扫描件/图片层）→ pymupdf 转图片后以 image_url 发送
   - 图片（jpg/png/webp 等）→ base64 image_url
   - Word / txt / md → 纯文字
@@ -9,6 +9,7 @@
 
 import base64
 import mimetypes
+from collections import Counter
 from pathlib import Path
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -76,68 +77,80 @@ def _image_block(path: Path) -> dict:
 
 
 def _pdf_blocks(path: Path) -> list:
-    """先尝试 pdfplumber 抽文字（自动剔除水印）；如果是扫描件，改用 pymupdf 转图片。"""
-    import pdfplumber
+    """用 pymupdf 抽文字（顺序比 pdfplumber 稳很多），并过滤重复行水印。
 
-    pages_text = []
-    with pdfplumber.open(str(path)) as pdf:
-        for page in pdf.pages:
-            t = _extract_text_no_watermark(page)
-            if t and t.strip():
-                pages_text.append(t.strip())
-
-    joined = "\n\n".join(pages_text).strip()
+    扫描件 / 文字层残缺时退化为整页转图片。
+    """
+    text = _extract_pdf_text(path)
+    cleaned = _strip_watermarks(text)
     # 文字层够多才走文字；太短（残缺/只有页眉页脚）就当扫描件转图片，
     # 避免模型拿到半截内容后"脑补"剩下的。
-    if len(joined) >= _MIN_PDF_TEXT_CHARS:
-        return [{"type": "text", "text": joined}]
-
-    # 扫描件 / 文字层残缺：逐页转图片
+    if len(cleaned) >= _MIN_PDF_TEXT_CHARS:
+        return [{"type": "text", "text": cleaned}]
     return _pdf_as_images(path)
 
 
-def _extract_text_no_watermark(page) -> str:
-    """提取一页的文字，剔除常见水印字符（旋转 / 极淡灰）。
-
-    PDF 水印一般通过两种方式实现：
-      1) 把文字旋转 45°/30° 等角度 → pdfplumber 的 char['upright'] 为 False
-      2) 把字体设成接近白色的浅灰 → char['non_stroking_color'] 是高灰度值
-
-    过滤掉这两类 char 后再排版抽文字。若过滤后剩余太少（<50% 原文），
-    可能是误伤，退回原文。
-    """
+def _extract_pdf_text(path: Path) -> str:
+    """pymupdf 按阅读顺序抽文字。"""
     try:
-        original = page.extract_text() or ""
+        import fitz  # pymupdf
+    except ImportError:
+        raise RuntimeError("需要 pymupdf：pip install pymupdf")
+    pages = []
+    doc = fitz.open(str(path))
+    try:
+        for page in doc:
+            t = page.get_text("text") or ""
+            if t.strip():
+                pages.append(t)
+    finally:
+        doc.close()
+    return "\n".join(pages)
 
-        def _keep(obj):
-            if obj.get("object_type") != "char":
-                return True
-            # 旋转字符（水印典型特征）
-            if obj.get("upright") is False:
-                return False
-            # 极淡灰：颜色越接近 1（白）越可能是水印背景文字
-            col = obj.get("non_stroking_color")
-            if isinstance(col, (int, float)) and col >= 0.75:
-                return False
-            if isinstance(col, (list, tuple)) and len(col) >= 3:
-                r, g, b = col[0], col[1], col[2]
-                if all(isinstance(x, (int, float)) for x in (r, g, b)) \
-                        and r >= 0.75 and g >= 0.75 and b >= 0.75:
-                    return False
+
+def _strip_watermarks(text: str) -> str:
+    """过滤"重复行水印"：
+
+    PDF 水印（如"公司名 ID：xxxx 日期"）在 pymupdf 抽取里通常是反复出现的整行，
+    且这种水印**重复次数远高于简历正文里的标题**。
+
+    规则：一行如果同时满足
+      - 去空白后**长度 ≥ 8**（避免误杀短标题如"销售经理"/"工作业绩"）
+      - 在全文出现 **≥ 5 次**
+    就认定为水印行，删掉；并连带删掉它的子串（截断的水印片段）。
+
+    安全网：过滤后若剩余 < 原文 20%，认为可能误伤，回退原文。
+    （之前用过 50% 阈值，但有些 PDF 水印实在太多，正文反而占少数。）
+    """
+    if not text:
+        return ""
+
+    raw_lines = text.splitlines()
+    stripped = [ln.strip() for ln in raw_lines]
+    counts = Counter(ln for ln in stripped if ln)
+
+    watermarks = {ln for ln, n in counts.items() if n >= 5 and len(ln) >= 8}
+    if not watermarks:
+        return text.strip()
+
+    def _is_watermark_fragment(ln: str) -> bool:
+        if not ln:
+            return False
+        if ln in watermarks:
             return True
+        # 子串：截断的水印片段（"杭州百" 是 "杭州百隆电子有限公司" 的前缀）
+        for w in watermarks:
+            if len(ln) < len(w) and ln in w:
+                return True
+        return False
 
-        filtered = page.filter(_keep).extract_text() or ""
+    kept = [orig for orig, s in zip(raw_lines, stripped) if not _is_watermark_fragment(s)]
+    cleaned = "\n".join(kept).strip()
 
-        # 安全网：若过滤后剩余文字少于原文 50%，可能是误伤，退回原文
-        if original and len(filtered.strip()) < len(original.strip()) * 0.5:
-            return original
-        return filtered
-    except Exception:
-        # 任何异常都退回原始抽取，保证不会让水印过滤把简历搞丢
-        try:
-            return page.extract_text() or ""
-        except Exception:
-            return ""
+    original = text.strip()
+    if original and len(cleaned) < len(original) * 0.2:
+        return original  # 过滤过头，回退
+    return cleaned
 
 
 def _pdf_as_images(path: Path) -> list:
